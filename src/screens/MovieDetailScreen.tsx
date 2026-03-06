@@ -24,7 +24,8 @@ import TrailerPlayer from '../components/TrailerPlayer';
 import HypeScoreBadge from '../components/HypeScoreBadge';
 import { Colors } from '../theme/colors';
 import { BorderRadius, Spacing, Fonts } from '../theme';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '../context/AuthContext';
+import { unifiedIsFavorite, unifiedAddFavorite, unifiedRemoveFavorite } from '../services/supabase';
 
 const { width } = Dimensions.get('window');
 
@@ -35,6 +36,7 @@ type RouteParams = {
 const MovieDetailScreen: React.FC = () => {
   const route = useRoute<RouteProp<RouteParams, 'MovieDetail'>>();
   const { movieId } = route.params;
+  const { user } = useAuth();
 
   const [movie, setMovie] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,7 +45,7 @@ const MovieDetailScreen: React.FC = () => {
   useEffect(() => {
     fetchMovie();
     checkFavorite();
-  }, [movieId]);
+  }, [movieId, user]);
 
   const fetchMovie = async () => {
     try {
@@ -59,24 +61,18 @@ const MovieDetailScreen: React.FC = () => {
 
   const checkFavorite = async () => {
     try {
-      const stored = await AsyncStorage.getItem('favorites');
-      const favorites: number[] = stored ? JSON.parse(stored) : [];
-      setIsFav(favorites.includes(movieId));
+      const result = await unifiedIsFavorite(user?.id ?? null, movieId);
+      setIsFav(result);
     } catch {}
   };
 
   const toggleFavorite = async () => {
     try {
-      const stored = await AsyncStorage.getItem('favorites');
-      let favorites: number[] = stored ? JSON.parse(stored) : [];
-
       if (isFav) {
-        favorites = favorites.filter((id) => id !== movieId);
+        await unifiedRemoveFavorite(user?.id ?? null, movieId);
       } else {
-        favorites.push(movieId);
+        await unifiedAddFavorite(user?.id ?? null, movieId);
       }
-
-      await AsyncStorage.setItem('favorites', JSON.stringify(favorites));
       setIsFav(!isFav);
     } catch (err) {
       console.error('Failed to toggle favorite:', err);

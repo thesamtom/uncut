@@ -77,3 +77,65 @@ export const isFavorite = async (userId: string, movieId: number): Promise<boole
   if (error) throw error;
   return !!data;
 };
+
+// ─── Unified Favorites (Supabase + AsyncStorage fallback) ───
+
+const LOCAL_FAVORITES_KEY = 'favorites';
+
+export const unifiedGetFavorites = async (userId: string | null): Promise<number[]> => {
+  if (userId) {
+    return getFavorites(userId);
+  }
+  const stored = await AsyncStorage.getItem(LOCAL_FAVORITES_KEY);
+  return stored ? JSON.parse(stored) : [];
+};
+
+export const unifiedIsFavorite = async (userId: string | null, movieId: number): Promise<boolean> => {
+  if (userId) {
+    return isFavorite(userId, movieId);
+  }
+  const stored = await AsyncStorage.getItem(LOCAL_FAVORITES_KEY);
+  const ids: number[] = stored ? JSON.parse(stored) : [];
+  return ids.includes(movieId);
+};
+
+export const unifiedAddFavorite = async (userId: string | null, movieId: number): Promise<void> => {
+  if (userId) {
+    await addFavorite(userId, movieId);
+    return;
+  }
+  const stored = await AsyncStorage.getItem(LOCAL_FAVORITES_KEY);
+  const ids: number[] = stored ? JSON.parse(stored) : [];
+  if (!ids.includes(movieId)) {
+    ids.push(movieId);
+    await AsyncStorage.setItem(LOCAL_FAVORITES_KEY, JSON.stringify(ids));
+  }
+};
+
+export const unifiedRemoveFavorite = async (userId: string | null, movieId: number): Promise<void> => {
+  if (userId) {
+    await removeFavorite(userId, movieId);
+    return;
+  }
+  const stored = await AsyncStorage.getItem(LOCAL_FAVORITES_KEY);
+  let ids: number[] = stored ? JSON.parse(stored) : [];
+  ids = ids.filter((id) => id !== movieId);
+  await AsyncStorage.setItem(LOCAL_FAVORITES_KEY, JSON.stringify(ids));
+};
+
+export const migrateLocalFavoritesToSupabase = async (userId: string): Promise<void> => {
+  const stored = await AsyncStorage.getItem(LOCAL_FAVORITES_KEY);
+  const localIds: number[] = stored ? JSON.parse(stored) : [];
+  if (localIds.length === 0) return;
+
+  const existing = await getFavorites(userId);
+  const toAdd = localIds.filter((id) => !existing.includes(id));
+
+  for (const movieId of toAdd) {
+    try {
+      await addFavorite(userId, movieId);
+    } catch {}
+  }
+
+  await AsyncStorage.removeItem(LOCAL_FAVORITES_KEY);
+};

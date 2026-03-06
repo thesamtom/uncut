@@ -38,7 +38,25 @@ const TrailerPlayer: React.FC<TrailerPlayerProps> = ({ videoKey, title }) => {
     );
   }
 
-  const embedUrl = `https://www.youtube.com/embed/${videoKey}?autoplay=1&rel=0&modestbranding=1`;
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+        <style>
+          body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+          iframe { width: 100%; height: 100%; border: none; }
+        </style>
+      </head>
+      <body>
+        <iframe 
+          src="https://www.youtube.com/embed/${videoKey}?autoplay=1&rel=0&modestbranding=1&playsinline=1&origin=https://www.youtube.com" 
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+          allowfullscreen
+        ></iframe>
+      </body>
+    </html>
+  `;
 
   return (
     <View style={styles.container}>
@@ -48,11 +66,14 @@ const TrailerPlayer: React.FC<TrailerPlayerProps> = ({ videoKey, title }) => {
         </View>
       )}
       <WebView
-        source={{ uri: embedUrl }}
+        source={{ html }}
         style={styles.webview}
         allowsFullscreenVideo
         mediaPlaybackRequiresUserAction={false}
+        allowsInlineMediaPlayback={true}
         onLoadEnd={() => setLoading(false)}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
       />
     </View>
   );

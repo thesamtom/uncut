@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
-import { supabase, signUp as sbSignUp, signIn as sbSignIn, signOut as sbSignOut } from '../services/supabase';
+import { supabase, signUp as sbSignUp, signIn as sbSignIn, signOut as sbSignOut, migrateLocalFavoritesToSupabase } from '../services/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -32,6 +32,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSession(s);
       setUser(s?.user ?? null);
       setLoading(false);
+
+      // Migrate local favorites to Supabase on sign-in
+      if (_event === 'SIGNED_IN' && s?.user) {
+        migrateLocalFavoritesToSupabase(s.user.id).catch(() => {});
+      }
     });
 
     return () => subscription.unsubscribe();

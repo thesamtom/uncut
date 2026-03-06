@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: BorderRadius.md,
   },
   placeholderPoster: {
-    backgroundColor: Colors.inputBackground,
+    backgroundColor: Colors.surfaceLight,
     justifyContent: 'center',
     alignItems: 'center',
   },

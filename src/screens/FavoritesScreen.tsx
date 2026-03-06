@@ -11,8 +11,9 @@ import {
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import MovieCard from '../components/MovieCard';
+import { useAuth } from '../context/AuthContext';
+import { unifiedGetFavorites, unifiedRemoveFavorite } from '../services/supabase';
 import { Movie, MovieDetails, Genre } from '../types/movie';
 import { getMovieDetails, getGenres } from '../services/tmdbApi';
 import { Colors } from '../theme/colors';
@@ -25,6 +26,7 @@ type RootStackParamList = {
 
 const FavoritesScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { user } = useAuth();
   const [movies, setMovies] = useState<MovieDetails[]>([]);
   const [genreMap, setGenreMap] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
@@ -32,8 +34,7 @@ const FavoritesScreen: React.FC = () => {
   const loadFavorites = useCallback(async () => {
     try {
       setLoading(true);
-      const stored = await AsyncStorage.getItem('favorites');
-      const favoriteIds: number[] = stored ? JSON.parse(stored) : [];
+      const favoriteIds = await unifiedGetFavorites(user?.id ?? null);
 
       if (favoriteIds.length === 0) {
         setMovies([]);
@@ -60,7 +61,7 @@ const FavoritesScreen: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   // Refresh favorites whenever screen is focused
   useFocusEffect(
@@ -84,10 +85,7 @@ const FavoritesScreen: React.FC = () => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const stored = await AsyncStorage.getItem('favorites');
-              let favoriteIds: number[] = stored ? JSON.parse(stored) : [];
-              favoriteIds = favoriteIds.filter((id) => id !== movieId);
-              await AsyncStorage.setItem('favorites', JSON.stringify(favoriteIds));
+              await unifiedRemoveFavorite(user?.id ?? null, movieId);
               setMovies((prev) => prev.filter((m) => m.id !== movieId));
             } catch (err) {
               console.error('Failed to remove favorite:', err);
