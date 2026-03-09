@@ -98,3 +98,17 @@ export interface Video {
   official: boolean;
   published_at: string;
 }
+
+export interface WatchProvider {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string;
+  display_priority: number;
+}
+
+export interface WatchProviderResult {
+  link?: string;
+  flatrate?: WatchProvider[];
+  rent?: WatchProvider[];
+  buy?: WatchProvider[];
+}

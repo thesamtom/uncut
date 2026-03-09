@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,19 +6,48 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  Switch,
   Modal,
   Linking,
+  FlatList,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { Colors } from '../theme/colors';
 import { BorderRadius, Spacing, Fonts } from '../theme';
 
+const REGIONS = [
+  { code: 'IN', name: 'India' },
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'FR', name: 'France' },
+  { code: 'JP', name: 'Japan' },
+  { code: 'KR', name: 'South Korea' },
+  { code: 'BR', name: 'Brazil' },
+  { code: 'AE', name: 'UAE' },
+  { code: 'SG', name: 'Singapore' },
+];
+
 const ProfileScreen: React.FC = () => {
   const { user, signOut } = useAuth();
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showRegionModal, setShowRegionModal] = useState(false);
+  const [selectedRegion, setSelectedRegion] = useState('IN');
+
+  useEffect(() => {
+    AsyncStorage.getItem('preferred_region').then((r) => {
+      if (r) setSelectedRegion(r);
+    });
+  }, []);
+
+  const handleRegionSelect = async (code: string) => {
+    setSelectedRegion(code);
+    await AsyncStorage.setItem('preferred_region', code);
+    setShowRegionModal(false);
+  };
 
   const handleSignOut = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -37,15 +66,7 @@ const ProfileScreen: React.FC = () => {
     ]);
   };
 
-  const handleNotifications = () => {
-    setNotificationsEnabled((prev) => !prev);
-    Alert.alert(
-      'Notifications',
-      notificationsEnabled
-        ? 'Notifications have been turned off.'
-        : 'Notifications have been turned on.',
-    );
-  };
+
 
   const handleAppearance = () => {
     Alert.alert(
@@ -81,20 +102,10 @@ const ProfileScreen: React.FC = () => {
     ? user.email.substring(0, 2).toUpperCase()
     : '??';
 
+  const regionName = REGIONS.find((r) => r.code === selectedRegion)?.name || selectedRegion;
+
   const menuItems = [
-    {
-      icon: 'notifications-outline' as const,
-      label: 'Notifications',
-      onPress: handleNotifications,
-      right: (
-        <Switch
-          value={notificationsEnabled}
-          onValueChange={handleNotifications}
-          trackColor={{ false: Colors.border, true: Colors.accent }}
-          thumbColor="#FFFFFF"
-        />
-      ),
-    },
+    { icon: 'globe-outline' as const, label: `Region: ${regionName}`, onPress: () => setShowRegionModal(true) },
     { icon: 'color-palette-outline' as const, label: 'Appearance', onPress: handleAppearance },
     { icon: 'shield-checkmark-outline' as const, label: 'Privacy', onPress: handlePrivacy },
     { icon: 'help-circle-outline' as const, label: 'Help & Support', onPress: handleHelp },
@@ -140,11 +151,7 @@ const ProfileScreen: React.FC = () => {
               <Ionicons name={item.icon} size={22} color={Colors.textSecondary} />
               <Text style={styles.menuItemLabel}>{item.label}</Text>
             </View>
-            {'right' in item && item.right ? (
-              item.right
-            ) : (
-              <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
-            )}
+            <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
           </TouchableOpacity>
         ))}
       </View>
@@ -159,7 +166,57 @@ const ProfileScreen: React.FC = () => {
         <Text style={styles.signOutText}>Sign Out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>Uncut v1.0.0</Text>
+      <Text style={styles.version}>Uncut v2.0.0</Text>
+
+      {/* Region Picker Modal */}
+      <Modal
+        visible={showRegionModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowRegionModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Region</Text>
+            <Text style={styles.regionSubtitle}>
+              This determines streaming availability shown on movie pages.
+            </Text>
+            <FlatList
+              data={REGIONS}
+              keyExtractor={(item) => item.code}
+              style={styles.regionList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.regionItem,
+                    item.code === selectedRegion && styles.regionItemActive,
+                  ]}
+                  onPress={() => handleRegionSelect(item.code)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.regionItemText,
+                      item.code === selectedRegion && styles.regionItemTextActive,
+                    ]}
+                  >
+                    {item.name}
+                  </Text>
+                  {item.code === selectedRegion && (
+                    <Ionicons name="checkmark-circle" size={20} color={Colors.accent} />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setShowRegionModal(false)}
+            >
+              <Text style={styles.modalButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* About Modal */}
       <Modal
@@ -174,7 +231,7 @@ const ProfileScreen: React.FC = () => {
               <Ionicons name="film" size={32} color={Colors.accent} />
             </View>
             <Text style={styles.modalTitle}>UNCUT</Text>
-            <Text style={styles.modalVersion}>Version 1.0.0</Text>
+            <Text style={styles.modalVersion}>Version 2.0.0</Text>
             <Text style={styles.modalDescription}>
               Uncut is your go-to app for discovering upcoming movies across Malayalam, Hindi, and Hollywood cinema. Track release dates, watch trailers, and build your personal watchlist.
             </Text>
@@ -370,6 +427,41 @@ const styles = StyleSheet.create({
   modalButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
+    fontFamily: Fonts.bold,
+  },
+  // Region picker
+  regionSubtitle: {
+    fontSize: 13,
+    fontFamily: Fonts.regular,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: Spacing.md,
+  },
+  regionList: {
+    maxHeight: 320,
+    width: '100%',
+  },
+  regionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.divider,
+  },
+  regionItemActive: {
+    backgroundColor: Colors.accentLight,
+    borderRadius: BorderRadius.sm,
+  },
+  regionItemText: {
+    fontSize: 15,
+    fontFamily: Fonts.medium,
+    color: Colors.textPrimary,
+  },
+  regionItemTextActive: {
+    color: Colors.accent,
     fontFamily: Fonts.bold,
   },
 });

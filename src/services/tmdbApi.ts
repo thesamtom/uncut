@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Movie, MovieDetails, TMDBResponse, Genre } from '../types/movie';
+import { Movie, MovieDetails, TMDBResponse, Genre, WatchProviderResult } from '../types/movie';
 
 const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
 const BASE_URL = 'https://api.themoviedb.org/3';
@@ -22,6 +22,7 @@ export const getImageUrl = (path: string | null, size: string = 'w500'): string 
 export const getPosterUrl = (path: string | null): string | null => getImageUrl(path, 'w500');
 export const getBackdropUrl = (path: string | null): string | null => getImageUrl(path, 'w780');
 export const getProfileUrl = (path: string | null): string | null => getImageUrl(path, 'w185');
+export const getLogoUrl = (path: string | null): string | null => getImageUrl(path, 'w92');
 
 // Fetch upcoming movies
 export const getUpcomingMovies = async (page: number = 1): Promise<TMDBResponse<Movie>> => {
@@ -87,4 +88,22 @@ export const calculateHypeScore = (movie: Movie): number => {
   const voteScore = (movie.vote_average / 10) * 30;
   const voteCountBonus = Math.min(movie.vote_count / 1000, 1) * 10;
   return Math.round(Math.min(popularityScore + voteScore + voteCountBonus, 100));
+};
+
+// Fetch watch providers for a movie in a specific region
+export const getWatchProviders = async (
+  movieId: number,
+  region: string = 'IN',
+): Promise<WatchProviderResult | null> => {
+  const response = await api.get(`/movie/${movieId}/watch/providers`);
+  const results = response.data?.results;
+  return results?.[region] ?? null;
+};
+
+// Fetch movie credits for a person (actor/director filmography)
+export const getPersonMovieCredits = async (
+  personId: number,
+): Promise<{ cast: Movie[]; crew: Movie[] }> => {
+  const response = await api.get(`/person/${personId}/movie_credits`);
+  return response.data;
 };

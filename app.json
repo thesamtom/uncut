@@ -2,7 +2,7 @@
   "expo": {
     "name": "Uncut",
     "slug": "uncut",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -35,6 +35,12 @@
       "eas": {
         "projectId": "fc48f5b5-9019-47cb-9c9b-7ee70717ae62"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/fc48f5b5-9019-47cb-9c9b-7ee70717ae62"
     }
   }
 }

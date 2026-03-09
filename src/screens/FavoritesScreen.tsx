@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,15 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import MovieCard from '../components/MovieCard';
 import { useAuth } from '../context/AuthContext';
-import { unifiedGetFavorites, unifiedRemoveFavorite } from '../services/supabase';
+import {
+  unifiedGetWatchlist,
+  unifiedRemoveFavorite,
+} from '../services/supabase';
 import { Movie, MovieDetails, Genre } from '../types/movie';
+import { WatchlistEntry } from '../types/watchlist';
 import { getMovieDetails, getGenres } from '../services/tmdbApi';
 import { Colors } from '../theme/colors';
-import { Spacing, Fonts } from '../theme';
+import { Spacing, Fonts, BorderRadius } from '../theme';
 
 type RootStackParamList = {
   HomeTabs: undefined;
@@ -28,29 +32,29 @@ const FavoritesScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user } = useAuth();
   const [movies, setMovies] = useState<MovieDetails[]>([]);
+  const [entries, setEntries] = useState<WatchlistEntry[]>([]);
   const [genreMap, setGenreMap] = useState<Record<number, string>>({});
   const [loading, setLoading] = useState(true);
 
   const loadFavorites = useCallback(async () => {
     try {
       setLoading(true);
-      const favoriteIds = await unifiedGetFavorites(user?.id ?? null);
+      const watchlistEntries = await unifiedGetWatchlist(user?.id ?? null);
+      setEntries(watchlistEntries);
 
-      if (favoriteIds.length === 0) {
+      if (watchlistEntries.length === 0) {
         setMovies([]);
         setLoading(false);
         return;
       }
 
-      // Load genres
       const genreList = await getGenres();
       const map: Record<number, string> = {};
       genreList.forEach((g: Genre) => { map[g.id] = g.name; });
       setGenreMap(map);
 
-      // Fetch movie details for each favorite
-      const moviePromises = favoriteIds.map((id) =>
-        getMovieDetails(id).catch(() => null)
+      const moviePromises = watchlistEntries.map((e) =>
+        getMovieDetails(e.movie_id).catch(() => null),
       );
       const results = await Promise.all(moviePromises);
       const validMovies = results.filter((m): m is MovieDetails => m !== null);
@@ -63,11 +67,10 @@ const FavoritesScreen: React.FC = () => {
     }
   }, [user]);
 
-  // Refresh favorites whenever screen is focused
   useFocusEffect(
     useCallback(() => {
       loadFavorites();
-    }, [loadFavorites])
+    }, [loadFavorites]),
   );
 
   const handleMoviePress = (movie: Movie) => {
@@ -87,12 +90,13 @@ const FavoritesScreen: React.FC = () => {
             try {
               await unifiedRemoveFavorite(user?.id ?? null, movieId);
               setMovies((prev) => prev.filter((m) => m.id !== movieId));
+              setEntries((prev) => prev.filter((e) => e.movie_id !== movieId));
             } catch (err) {
               console.error('Failed to remove favorite:', err);
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -110,7 +114,7 @@ const FavoritesScreen: React.FC = () => {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Watchlist</Text>
-        <Text style={styles.count}>{movies.length} movies</Text>
+        <Text style={styles.count}>{movies.length} {movies.length === 1 ? 'movie' : 'movies'}</Text>
       </View>
 
       <FlatList
@@ -120,23 +124,23 @@ const FavoritesScreen: React.FC = () => {
         columnWrapperStyle={styles.row}
         contentContainerStyle={styles.listContent}
         renderItem={({ item }) => (
-          <View>
+          <View style={styles.cardWrapper}>
             <MovieCard movie={item} onPress={handleMoviePress} genreMap={genreMap} />
             <TouchableOpacity
               style={styles.removeButton}
               onPress={() => handleRemoveFavorite(item.id)}
             >
               <Ionicons name="trash-outline" size={14} color={Colors.error} />
-              <Text style={styles.removeText}>Remove</Text>
+              <Text style={styles.removeText}>{'Remove'}</Text>
             </TouchableOpacity>
           </View>
         )}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="heart-outline" size={64} color={Colors.textMuted} />
-            <Text style={styles.emptyTitle}>No movies saved</Text>
+            <Text style={styles.emptyTitle}>{'No movies saved'}</Text>
             <Text style={styles.emptySubtitle}>
-              Movies you add to your watchlist will appear here
+              {'Movies you add to your watchlist will appear here'}
             </Text>
           </View>
         }
@@ -165,7 +169,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.xxl,
-    paddingBottom: Spacing.md,
+    paddingBottom: Spacing.sm,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
@@ -179,6 +183,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textMuted,
     fontFamily: Fonts.medium,
+  },
+  cardWrapper: {
+    alignItems: 'center',
   },
   listContent: {
     paddingHorizontal: Spacing.md,

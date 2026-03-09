@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,16 +8,22 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Dimensions,
+  Linking,
 } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { MovieDetails } from '../types/movie';
+import { Movie, MovieDetails, WatchProviderResult } from '../types/movie';
 import {
   getMovieDetails,
   getPosterUrl,
   getBackdropUrl,
   getProfileUrl,
+  getLogoUrl,
   calculateHypeScore,
+  getPersonMovieCredits,
+  getWatchProviders,
 } from '../services/tmdbApi';
 import CountdownTimer from '../components/CountdownTimer';
 import TrailerPlayer from '../components/TrailerPlayer';
@@ -25,7 +31,12 @@ import HypeScoreBadge from '../components/HypeScoreBadge';
 import { Colors } from '../theme/colors';
 import { BorderRadius, Spacing, Fonts } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { unifiedIsFavorite, unifiedAddFavorite, unifiedRemoveFavorite } from '../services/supabase';
+import {
+  unifiedIsFavorite,
+  unifiedAddFavorite,
+  unifiedRemoveFavorite,
+} from '../services/supabase';
+
 
 const { width } = Dimensions.get('window');
 
@@ -33,19 +44,41 @@ type RouteParams = {
   MovieDetail: { movieId: number };
 };
 
+type RootStackParamList = {
+  HomeTabs: undefined;
+  MovieDetail: { movieId: number };
+};
+
 const MovieDetailScreen: React.FC = () => {
   const route = useRoute<RouteProp<RouteParams, 'MovieDetail'>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { movieId } = route.params;
   const { user } = useAuth();
 
   const [movie, setMovie] = useState<MovieDetails | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Watchlist state
   const [isFav, setIsFav] = useState(false);
+
+  // You Might Like (crew filmography)
+  const [crewPicks, setCrewPicks] = useState<Movie[]>([]);
+
+  // Where to Watch
+  const [watchProviders, setWatchProviders] = useState<WatchProviderResult | null>(null);
+  const [providersFetched, setProvidersFetched] = useState(false);
 
   useEffect(() => {
     fetchMovie();
     checkFavorite();
   }, [movieId, user]);
+
+  useEffect(() => {
+    if (movie) {
+      fetchCrewPicks();
+      fetchWatchProviders();
+    }
+  }, [movie]);
 
   const fetchMovie = async () => {
     try {
@@ -66,18 +99,83 @@ const MovieDetailScreen: React.FC = () => {
     } catch {}
   };
 
-  const toggleFavorite = async () => {
+  const fetchCrewPicks = async () => {
+    if (!movie) return;
+    try {
+      const director = movie.credits?.crew?.find((c) => c.job === 'Director');
+      const topCast = movie.credits?.cast?.slice(0, 3) || [];
+      const personIds: number[] = [];
+      if (director) personIds.push(director.id);
+      topCast.forEach((c) => personIds.push(c.id));
+
+      const allCredits = await Promise.all(
+        personIds.map((id) => getPersonMovieCredits(id).catch(() => ({ cast: [], crew: [] }))),
+      );
+
+      const seen = new Set<number>([movieId]);
+      const picks: Movie[] = [];
+
+      // Director's top movies first
+      if (director && allCredits[0]) {
+        const directorMovies = allCredits[0].crew
+          .filter((m) => m.id !== movieId && m.poster_path && m.vote_count > 50)
+          .sort((a, b) => b.vote_average - a.vote_average);
+        for (const m of directorMovies) {
+          if (!seen.has(m.id) && picks.length < 2) {
+            seen.add(m.id);
+            picks.push(m);
+          }
+        }
+      }
+
+      // Top cast movies
+      const castStartIdx = director ? 1 : 0;
+      for (let i = castStartIdx; i < allCredits.length && picks.length < 6; i++) {
+        const actorMovies = allCredits[i].cast
+          .filter((m) => m.id !== movieId && m.poster_path && m.vote_count > 50)
+          .sort((a, b) => b.vote_average - a.vote_average);
+        for (const m of actorMovies) {
+          if (!seen.has(m.id) && picks.length < 6) {
+            seen.add(m.id);
+            picks.push(m);
+          }
+        }
+      }
+
+      setCrewPicks(picks);
+    } catch {}
+  };
+
+  const fetchWatchProviders = async () => {
+    try {
+      const region = (await AsyncStorage.getItem('preferred_region')) || 'IN';
+      const providers = await getWatchProviders(movieId, region);
+      setWatchProviders(providers);
+    } catch {}
+    setProvidersFetched(true);
+  };
+
+  // ─── Watchlist Toggle ─────────────────────────────────
+
+  const toggleWatchlist = async () => {
     try {
       if (isFav) {
         await unifiedRemoveFavorite(user?.id ?? null, movieId);
+        setIsFav(false);
       } else {
         await unifiedAddFavorite(user?.id ?? null, movieId);
+        setIsFav(true);
       }
-      setIsFav(!isFav);
     } catch (err) {
-      console.error('Failed to toggle favorite:', err);
+      console.error('Failed to toggle watchlist:', err);
     }
   };
+
+  // ─── Navigate to related movie ────────────────────────
+
+  const handleRelatedMoviePress = useCallback((relatedMovie: Movie) => {
+    navigation.push('MovieDetail', { movieId: relatedMovie.id });
+  }, [navigation]);
 
   if (loading || !movie) {
     return (
@@ -100,6 +198,7 @@ const MovieDetailScreen: React.FC = () => {
   const cast = movie.credits?.cast?.slice(0, 10) || [];
   const videos = movie.videos?.results || [];
   const director = movie.credits?.crew?.find((c) => c.job === 'Director');
+  const isUpcoming = new Date(movie.release_date) > new Date();
 
   return (
     <ScrollView style={styles.container} bounces={false}>
@@ -131,10 +230,10 @@ const MovieDetailScreen: React.FC = () => {
       </View>
 
       <View style={styles.content}>
-        {/* Favorite Button */}
+        {/* Watchlist Button */}
         <TouchableOpacity
           style={[styles.favoriteButton, isFav && styles.favoriteButtonActive]}
-          onPress={toggleFavorite}
+          onPress={toggleWatchlist}
           activeOpacity={0.8}
         >
           <Ionicons
@@ -143,7 +242,7 @@ const MovieDetailScreen: React.FC = () => {
             color={isFav ? '#FFFFFF' : Colors.accent}
           />
           <Text style={[styles.favoriteText, isFav && styles.favoriteTextActive]}>
-            {isFav ? 'Saved to Watchlist' : 'Add to Watchlist'}
+            {isFav ? 'In Watchlist' : 'Add to Watchlist'}
           </Text>
         </TouchableOpacity>
 
@@ -205,6 +304,68 @@ const MovieDetailScreen: React.FC = () => {
           </View>
         )}
 
+        {/* Where to Watch */}
+        {providersFetched && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Where to Watch</Text>
+            {watchProviders && (watchProviders.flatrate || watchProviders.rent || watchProviders.buy) ? (
+              <>
+                {watchProviders.flatrate && watchProviders.flatrate.length > 0 && (
+                  <View style={styles.providerGroup}>
+                    <Text style={styles.providerLabel}>Stream</Text>
+                    <View style={styles.providerRow}>
+                      {watchProviders.flatrate.map((p) => (
+                        <ProviderBadge key={p.provider_id} name={p.provider_name} logoPath={p.logo_path} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+                {watchProviders.rent && watchProviders.rent.length > 0 && (
+                  <View style={styles.providerGroup}>
+                    <Text style={styles.providerLabel}>Rent</Text>
+                    <View style={styles.providerRow}>
+                      {watchProviders.rent.map((p) => (
+                        <ProviderBadge key={p.provider_id} name={p.provider_name} logoPath={p.logo_path} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+                {watchProviders.buy && watchProviders.buy.length > 0 && (
+                  <View style={styles.providerGroup}>
+                    <Text style={styles.providerLabel}>Buy</Text>
+                    <View style={styles.providerRow}>
+                      {watchProviders.buy.map((p) => (
+                        <ProviderBadge key={p.provider_id} name={p.provider_name} logoPath={p.logo_path} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+                {watchProviders.link && (
+                  <TouchableOpacity onPress={() => Linking.openURL(watchProviders.link!)} activeOpacity={0.7}>
+                    <Text style={styles.providerLink}>View all options on TMDB {'\u2192'}</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <Text style={styles.providerUnavailable}>
+                This movie is not available for streaming, rent, or purchase in your region.
+              </Text>
+            )}
+          </View>
+        )}
+
+        {/* You Might Like */}
+        {crewPicks.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>You Might Like</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {crewPicks.map((item) => (
+                <RelatedMovieCard key={item.id} movie={item} onPress={handleRelatedMoviePress} />
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Additional Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Details</Text>
@@ -234,6 +395,43 @@ const DetailItem: React.FC<{ label: string; value: string }> = ({ label, value }
     <Text style={styles.detailValue}>{value}</Text>
   </View>
 );
+
+const ProviderBadge: React.FC<{ name: string; logoPath: string }> = ({ name, logoPath }) => {
+  const logo = getLogoUrl(logoPath);
+  return (
+    <View style={styles.providerBadge}>
+      {logo ? (
+        <Image source={{ uri: logo }} style={styles.providerLogo} />
+      ) : (
+        <View style={[styles.providerLogo, { backgroundColor: Colors.surfaceLight, justifyContent: 'center', alignItems: 'center' }]}>
+          <Ionicons name="tv-outline" size={16} color={Colors.textMuted} />
+        </View>
+      )}
+      <Text style={styles.providerName} numberOfLines={1}>{name}</Text>
+    </View>
+  );
+};
+
+const RelatedMovieCard: React.FC<{ movie: Movie; onPress: (m: Movie) => void }> = ({ movie, onPress }) => {
+  const poster = getPosterUrl(movie.poster_path);
+  return (
+    <TouchableOpacity style={styles.relatedCard} onPress={() => onPress(movie)} activeOpacity={0.8}>
+      {poster ? (
+        <Image source={{ uri: poster }} style={styles.relatedPoster} />
+      ) : (
+        <View style={[styles.relatedPoster, styles.relatedPosterPlaceholder]}>
+          <Ionicons name="film-outline" size={24} color={Colors.textMuted} />
+        </View>
+      )}
+      <Text style={styles.relatedTitle} numberOfLines={2}>{movie.title}</Text>
+      {movie.release_date ? (
+        <Text style={styles.relatedYear}>
+          {new Date(movie.release_date).getFullYear()}
+        </Text>
+      ) : null}
+    </TouchableOpacity>
+  );
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -411,6 +609,77 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontSize: 15,
     fontFamily: Fonts.semiBold,
+  },
+  // Related Movie Cards
+  relatedCard: {
+    width: 110,
+    marginRight: Spacing.md,
+  },
+  relatedPoster: {
+    width: 110,
+    height: 165,
+    borderRadius: BorderRadius.md,
+    marginBottom: 6,
+  },
+  relatedPosterPlaceholder: {
+    backgroundColor: Colors.surfaceLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  relatedTitle: {
+    fontSize: 12,
+    fontFamily: Fonts.semiBold,
+    color: Colors.textPrimary,
+  },
+  relatedYear: {
+    fontSize: 11,
+    fontFamily: Fonts.regular,
+    color: Colors.textMuted,
+  },
+  // Where to Watch
+  providerGroup: {
+    marginBottom: Spacing.sm,
+  },
+  providerLabel: {
+    fontSize: 13,
+    fontFamily: Fonts.semiBold,
+    color: Colors.textSecondary,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  providerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  providerBadge: {
+    alignItems: 'center',
+    width: 64,
+  },
+  providerLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  providerName: {
+    fontSize: 10,
+    fontFamily: Fonts.medium,
+    color: Colors.textMuted,
+    textAlign: 'center',
+  },
+  providerLink: {
+    fontSize: 13,
+    fontFamily: Fonts.semiBold,
+    color: Colors.accent,
+    marginTop: Spacing.sm,
+  },
+  providerUnavailable: {
+    fontSize: 14,
+    fontFamily: Fonts.regular,
+    color: Colors.textMuted,
+    lineHeight: 20,
   },
 });
 
